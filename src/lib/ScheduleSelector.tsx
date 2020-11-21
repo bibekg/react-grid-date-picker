@@ -34,19 +34,37 @@ export const GridCell = styled.div`
   touch-action: none;
 `
 
-const DateCell = styled.div<{
+type DateCellProps = {
+  blocked: boolean
   selected: boolean
   selectedColor: string
   unselectedColor: string
+  blockedColor: string
   hoveredColor: string
-}>`
+}
+const getDateCellColor = (props: DateCellProps) => {
+  if (props.blocked) {
+    return props.blockedColor
+  } else if (props.selected) {
+    return props.selectedColor
+  } else {
+    return props.unselectedColor
+  }
+}
+
+const DateCell = styled.div<DateCellProps>`
   width: 100%;
   height: 25px;
-  background-color: ${props => (props.selected ? props.selectedColor : props.unselectedColor)};
+  background-color: ${getDateCellColor};
 
-  &:hover {
-    background-color: ${props => props.hoveredColor};
-  }
+  ${props =>
+    !props.blocked
+      ? `
+    &:hover {
+      background-color: ${props.hoveredColor};
+    }
+  `
+      : ''}
 `
 
 const DateLabel = styled(Subtitle)`
@@ -66,6 +84,14 @@ const TimeText = styled(Text)`
   margin-right: 4px;
 `
 
+interface DateCellRendererProps {
+  datetime: Date
+  // Indicates whether the specified time is prevented from being selectable
+  blocked: boolean
+  selected: boolean
+  refSetter: (dateCellElement: HTMLElement) => void
+}
+
 type PropsType = {
   selection: Array<Date>
   selectionScheme: SelectionSchemeType
@@ -81,8 +107,10 @@ type PropsType = {
   rowGap: string
   unselectedColor: string
   selectedColor: string
+  blockedColor: string
   hoveredColor: string
-  renderDateCell?: (datetime: Date, selected: boolean, refSetter: (dateCellElement: HTMLElement) => void) => JSX.Element
+  blockedTimes: Array<Date>
+  renderCell?: (props: DateCellRendererProps) => JSX.Element
   renderTimeLabel?: (time: Date) => JSX.Element
   renderDateLabel?: (date: Date) => JSX.Element
 }
@@ -102,16 +130,7 @@ export const preventScroll = (e: TouchEvent) => {
 }
 
 export default class ScheduleSelector extends React.Component<PropsType, StateType> {
-  selectionSchemeHandlers: { [key: string]: (startDate: Date, endDate: Date, foo: Array<Array<Date>>) => Date[] }
   cellToDate: Map<Element, Date> = new Map()
-  // documentMouseUpHandler: () => void = () => {}
-  // endSelection: () => void = () => {}
-  // handleTouchMoveEvent: (event: React.SyntheticTouchEvent<*>) => void
-  // handleTouchEndEvent: () => void
-  // handleMouseUpEvent: (date: Date) => void
-  // handleMouseEnterEvent: (date: Date) => void
-  // handleSelectionStartEvent: (date: Date) => void
-  gridRef: HTMLElement | null = null
 
   static defaultProps: Partial<PropsType> = {
     selection: [],
@@ -127,7 +146,9 @@ export default class ScheduleSelector extends React.Component<PropsType, StateTy
     rowGap: '4px',
     selectedColor: colors.blue,
     unselectedColor: colors.paleBlue,
+    blockedColor: colors.paleRed,
     hoveredColor: colors.lightBlue,
+    blockedTimes: [],
     onChange: () => {}
   }
 
@@ -167,11 +188,6 @@ export default class ScheduleSelector extends React.Component<PropsType, StateTy
       selectionStart: null,
       isTouchDragging: false,
       dates: ScheduleSelector.computeDatesMatrix(props)
-    }
-
-    this.selectionSchemeHandlers = {
-      linear: selectionSchemes.linear,
-      square: selectionSchemes.square
     }
 
     this.endSelection = this.endSelection.bind(this)
@@ -241,11 +257,11 @@ export default class ScheduleSelector extends React.Component<PropsType, StateTy
 
     let newSelection: Array<Date> = []
     if (selectionStart && selectionEnd && selectionType) {
-      newSelection = this.selectionSchemeHandlers[this.props.selectionScheme](
+      newSelection = selectionSchemes[this.props.selectionScheme](
         selectionStart,
         selectionEnd,
         this.state.dates
-      )
+      ).filter(selectedTime => !this.isTimeBlocked(selectedTime))
     }
 
     let nextDraft = [...this.props.selection]
@@ -256,6 +272,10 @@ export default class ScheduleSelector extends React.Component<PropsType, StateTy
     }
 
     this.setState({ selectionDraft: nextDraft }, callback)
+  }
+
+  isTimeBlocked(time: Date) {
+    return this.props.blockedTimes.find(blockedTime => blockedTime.toISOString() === time.toISOString()) !== undefined
   }
 
   // Isomorphic (mouse and touch) handler since starting a selection works the same way for both classes of user input
@@ -303,54 +323,62 @@ export default class ScheduleSelector extends React.Component<PropsType, StateTy
     this.setState({ isTouchDragging: false })
   }
 
-  renderDateCellWrapper = (time: Date): JSX.Element => {
+  renderCellWrapper = (time: Date): JSX.Element => {
     const startHandler = () => {
       this.handleSelectionStartEvent(time)
     }
 
     const selected = Boolean(this.state.selectionDraft.find(a => isSameMinute(a, time)))
+    const blocked = this.isTimeBlocked(time)
+
+    const unblockedCellProps = {
+      // Mouse handlers
+      onMouseDown: startHandler,
+      onMouseEnter: () => {
+        this.handleMouseEnterEvent(time)
+      },
+      onMouseUp: () => {
+        this.handleMouseUpEvent(time)
+      },
+      // Touch handlers
+      // Since touch events fire on the event where the touch-drag started, there's no point in passing
+      // in the time parameter, instead these handlers will do their job using the default Event
+      // parameters
+      onTouchStart: startHandler,
+      onTouchMove: this.handleTouchMoveEvent,
+      onTouchEnd: this.handleTouchEndEvent
+    }
 
     return (
       <GridCell
         className="rgdp__grid-cell"
         role="presentation"
         key={time.toISOString()}
-        // Mouse handlers
-        onMouseDown={startHandler}
-        onMouseEnter={() => {
-          this.handleMouseEnterEvent(time)
-        }}
-        onMouseUp={() => {
-          this.handleMouseUpEvent(time)
-        }}
-        // Touch handlers
-        // Since touch events fire on the event where the touch-drag started, there's no point in passing
-        // in the time parameter, instead these handlers will do their job using the default Event
-        // parameters
-        onTouchStart={startHandler}
-        onTouchMove={this.handleTouchMoveEvent}
-        onTouchEnd={this.handleTouchEndEvent}
+        {...(!blocked ? unblockedCellProps : {})}
       >
-        {this.renderDateCell(time, selected)}
+        {this.renderCell(time, selected, blocked)}
       </GridCell>
     )
   }
 
-  renderDateCell = (time: Date, selected: boolean): JSX.Element => {
+  renderCell = (time: Date, selected: boolean, blocked: boolean): JSX.Element => {
     const refSetter = (dateCell: HTMLElement | null) => {
       if (dateCell) {
         this.cellToDate.set(dateCell, time)
       }
     }
-    if (this.props.renderDateCell) {
-      return this.props.renderDateCell(time, selected, refSetter)
+
+    if (this.props.renderCell) {
+      return this.props.renderCell({ datetime: time, blocked, selected, refSetter })
     } else {
       return (
         <DateCell
+          blocked={blocked}
           selected={selected}
           ref={refSetter}
           selectedColor={this.props.selectedColor}
           unselectedColor={this.props.unselectedColor}
+          blockedColor={this.props.blockedColor}
           hoveredColor={this.props.hoveredColor}
         />
       )
@@ -382,7 +410,7 @@ export default class ScheduleSelector extends React.Component<PropsType, StateTy
         flattenedDates.push(this.state.dates[i][j])
       }
     }
-    const dateGridElements = flattenedDates.map(this.renderDateCellWrapper)
+    const dateGridElements = flattenedDates.map(this.renderCellWrapper)
     for (let i = 0; i < numTimes; i += 1) {
       const index = i * numDays
       const time = this.state.dates[0][i]
@@ -409,9 +437,6 @@ export default class ScheduleSelector extends React.Component<PropsType, StateTy
           rows={this.state.dates[0].length}
           columnGap={this.props.columnGap}
           rowGap={this.props.rowGap}
-          ref={el => {
-            this.gridRef = el
-          }}
         >
           {this.renderFullDateGrid()}
         </Grid>

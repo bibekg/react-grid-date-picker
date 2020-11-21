@@ -4,7 +4,8 @@ const colors = {
   white: 'rgba(255, 255, 255, 1)',
   black: 'rgba(79, 79, 79, 1)',
   grey: 'rgba(79, 79, 79, 0.87)',
-  paleBlue: '#dbedff'
+  paleBlue: '#dbedff',
+  paleRed: '#B91600'
 }
 
 export default colors

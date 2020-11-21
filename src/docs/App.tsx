@@ -162,12 +162,13 @@ const App = () => {
           minTime={minTime}
           maxTime={maxTime}
           numDays={numDays}
-          startDate={new Date(startDate)}
+          startDate={startDate}
           selection={schedule}
           onChange={setSchedule}
           hourlyChunks={hourlyChunks}
           timeFormat="h:mma"
           selectionScheme={selectionScheme}
+          blockedTimes={[new Date('2020-11-22T23:00:00.000Z'), new Date('2020-11-22T24:00:00.000Z')]}
         />
       </ScheduleSelectorCard>
       <Links>
